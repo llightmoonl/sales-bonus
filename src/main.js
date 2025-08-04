@@ -59,10 +59,6 @@ function sorting({ arr, order, key }) {
     arr.sort((a, b) => sortHelper({ a, b, order, key }));
 }
 
-function toSorting({ arr, order, key }) {
-    return arr.toSorted((a, b) => sortHelper({ a, b, order, key }));
-}
-
 function sortByProfit(arr) {
     return sorting({ arr, order: 'desc', key: 'profit' });
 }
@@ -127,9 +123,9 @@ function getSellerTopProducts(seller) {
         sku,
         quantity,
     }));
-    const sortedArrayProducts = toSorting({ arr: arrayProducts, order: 'desc', key: 'quantity' });
+    sorting({ arr: arrayProducts, order: 'desc', key: 'quantity' });
 
-    return sortedArrayProducts.slice(0, 10);
+    return arrayProducts.slice(0, 10);
 }
 
 /**
