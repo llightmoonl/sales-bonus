@@ -13,6 +13,37 @@ const isValidPercent = (percent) => percent >= 0 && percent <= 100;
 const isNotNegative = (num) => num >= 0;
 
 /**
+ * Функция для сбора промежуточных данных для сбора статистики
+ * @param {object} data исходные тестовые данные
+ * @returns {array}
+ */
+const initialData = (data) =>
+    data.sellers.map((seller) => ({
+        id: seller.id,
+        name: `${seller.first_name} ${seller.last_name}`,
+
+        products_sold: {},
+    }));
+
+/**
+ * Функция для формирование объекта, чтоб вывести его на экран
+ * @param {object} data исходные тестовые данные
+ * @returns {array}
+ */
+const printDataSeller = (sellerStats) =>
+    sellerStats.map((seller) => ({
+        seller_id: seller.id,
+        name: seller.name,
+        revenue: +seller.revenue.toFixed(2),
+        profit: +seller.profit.toFixed(2),
+        sales_count: +seller.sales_count.toFixed(2),
+        top_products: seller.top_products,
+        bonus: seller.bonus,
+    }));
+
+const dataIndex = (data, index) => Object.fromEntries(data.map((item) => [item[index], item]));
+
+/**
  * Функция для вычисление суммы без скидки
  * @param {number} discount скидка
  * @returns {number}
@@ -42,6 +73,24 @@ function validatePurchase(purchase) {
         throw new Error(`Неверное значение в переменной quantity: ${quantity}. Должно быть число >= 0`);
 }
 
+/**
+ * Сформирование и обновление поля с числом
+ * @param {number} field запись, которую нужно сформировать или обновить
+ * @param {number} value на сколько увеличить число
+ * @returns {number}
+ */
+function updateFieldValue(field, value = 1) {
+    if (!field) field = 0;
+    field += value;
+
+    return field;
+}
+
+/**
+ * Реализация сортировки с помощью паттерна стратегии
+ * @param {string} order метод сортировки. asc - по возрастанию, desc - по убыванию
+ * @param {string} key ключ для объекта, если необходим
+ */
 function sortHelper({ a, b, order, key }) {
     const isObject = typeof a === 'object' && typeof b === 'object';
     const valueA = isObject ? a[key] : a;
@@ -55,10 +104,22 @@ function sortHelper({ a, b, order, key }) {
     return orders[order];
 }
 
+/**
+ * Сортировка записей
+ * @param {array} arr исходный массив
+ * @param {string} order метод сортировки. asc - по возрастанию, desc - по убыванию
+ * @param {string} key ключ для объекта, если необходим
+ * @returns {array}
+ */
 function sorting({ arr, order, key }) {
     arr.sort((a, b) => sortHelper({ a, b, order, key }));
 }
 
+/**
+ * Сортировка записей по прибыли
+ * @param {array} arr исходный массив
+ * @returns {array}
+ */
 function sortByProfit(arr) {
     return sorting({ arr, order: 'desc', key: 'profit' });
 }
@@ -84,40 +145,46 @@ function calculateSimpleRevenue(purchase, _product) {
 /**
  * Функция для расчета выручки
  * @param {object} purchase запись о покупке
- * @param {number} product
+ * @param {number} product продукт
+ * @param {cb} вариант просчета выручки
  * @returns {number}
  */
-function calculateSimpleProfit(purchase, product) {
+function calculateProfit(purchase, product, cb) {
     const { purchase_price } = product;
     const { quantity } = purchase;
 
     const cost = purchase_price * quantity;
-    const revenue = calculateSimpleRevenue(purchase);
+    const revenue = cb(purchase);
 
     return revenue - cost;
 }
 
 /**
  * Функция для расчета бонусов
- * @param index порядковый номер в отсортированном массиве
- * @param total общее число продавцов
- * @param seller карточка продавца
+ * @param {number} index порядковый номер в отсортированном массиве
+ * @param {number} total общее число продавцов
+ * @param {object} seller карточка продавца
  * @returns {number}
  */
 function calculateBonusByProfit(index, total, seller) {
     const { profit } = seller;
+    const ranks = {
+        first: { condition: index === 0, bonus: profit * 0.15 },
+        second: { condition: index === 1 || index === 2, bonus: profit * 0.1 },
+        last: { condition: index === total - 1, bonus: 0 },
+        other: { condition: true, bonus: profit * 0.05 },
+    };
 
-    if (index === 0) {
-        return profit * 0.15;
-    } else if (index === 1 || index === 2) {
-        return profit * 0.1;
-    } else if (index === total - 1) {
-        return 0;
-    } else {
-        return profit * 0.05;
+    for (const rank of Object.values(ranks)) {
+        if (rank.condition) return rank.bonus;
     }
 }
 
+/**
+ * Функция для сформирования списка топа 10
+ * @param seller карточка продавца
+ * @returns {array}
+ */
 function getSellerTopProducts(seller) {
     const arrayProducts = Object.entries(seller.products_sold).map(([sku, quantity]) => ({
         sku,
@@ -126,6 +193,19 @@ function getSellerTopProducts(seller) {
     sorting({ arr: arrayProducts, order: 'desc', key: 'quantity' });
 
     return arrayProducts.slice(0, 10);
+}
+
+/**
+ * Сформирования бонуса по рангу
+ * @param {array} sellers - продавцы
+ * @param {Function} cb - метод формирования бонуса
+ * @returns {void}
+ */
+function bonusSellerByRank(sellers, cb) {
+    sellers.forEach((seller, index) => {
+        seller.bonus = cb(index, sellers.length, seller);
+        seller.top_products = getSellerTopProducts(seller);
+    });
 }
 
 /**
@@ -143,59 +223,29 @@ function analyzeSalesData(data, options) {
     if (typeof calculateRevenue !== 'function' || typeof calculateBonus !== 'function')
         throw new Error('Опции не являются функции');
 
-    // @TODO: Подготовка промежуточных данных для сбора статистики
-    const sellerStats = data.sellers.map((seller) => ({
-        id: seller.id,
-        name: `${seller.first_name} ${seller.last_name}`,
+    const sellerStats = initialData(data);
 
-        products_sold: {},
-    }));
-
-    // @TODO: Индексация продавцов и товаров для быстрого доступа
-    const sellerIndex = Object.fromEntries(sellerStats.map((item) => [item.id, item]));
-    const productIndex = Object.fromEntries(data.products.map((item) => [item.sku, item]));
+    const sellerIndex = dataIndex(sellerStats, 'id');
+    const productIndex = dataIndex(data.products, 'sku');
 
     // @TODO: Расчет выручки и прибыли для каждого продавца
     data.purchase_records.forEach((record) => {
         const seller = sellerIndex[record.seller_id];
 
-        if (!seller.sales_count) seller.sales_count = 0;
-        seller.sales_count += 1;
-
-        if (!seller.revenue) seller.revenue = 0;
-        seller.revenue += record.total_amount;
+        seller.sales_count = updateFieldValue(seller.sales_count);
+        seller.revenue = updateFieldValue(seller.revenue, record.total_amount);
 
         record.items.forEach((item) => {
             const product = productIndex[item.sku];
-            const profit = calculateSimpleProfit(item, product);
+            const profit = calculateProfit(item, product, calculateRevenue);
 
-            if (!seller.profit) seller.profit = 0;
-            seller.profit += profit;
-
-            if (!seller.products_sold[item.sku]) {
-                seller.products_sold[item.sku] = 0;
-            }
-
-            seller.products_sold[item.sku] += 1;
+            seller.profit = updateFieldValue(seller.profit, profit);
+            seller.products_sold[item.sku] = updateFieldValue(seller.products_sold[item.sku], item.quantity);
         });
     });
 
-    // @TODO: Сортировка продавцов по прибыли
     sortByProfit(sellerStats);
+    bonusSellerByRank(sellerStats, calculateBonus);
 
-    // @TODO: Назначение премий на основе ранжирования
-    sellerStats.forEach((seller, index) => {
-        seller.bonus = calculateBonus(index, sellerStats.length, seller);
-        seller.top_products = getSellerTopProducts(seller);
-    });
-
-    return sellerStats.map((seller) => ({
-        seller_id: seller.id,
-        name: seller.name,
-        revenue: +seller.revenue.toFixed(2),
-        profit: +seller.profit.toFixed(2),
-        sales_count: +seller.sales_count.toFixed(2),
-        top_products: seller.top_products,
-        bonus: seller.bonus,
-    }));
+    return printDataSeller(sellerStats);
 }
