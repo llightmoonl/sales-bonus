@@ -38,7 +38,7 @@ const printDataSeller = (sellerStats) =>
         profit: +seller.profit.toFixed(2),
         sales_count: +seller.sales_count.toFixed(2),
         top_products: seller.top_products,
-        bonus: seller.bonus,
+        bonus: +seller.bonus.toFixed(2),
     }));
 
 const dataIndex = (data, index) => Object.fromEntries(data.map((item) => [item[index], item]));
